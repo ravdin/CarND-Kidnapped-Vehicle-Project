@@ -25,7 +25,11 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	//   x, y, theta and their uncertainties from GPS) and all weights to 1.
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
-  num_particles = 100;
+  if (is_initialized) {
+		return;
+	}
+
+	num_particles = 100;
 
 	default_random_engine gen;
 	normal_distribution<double> dist_x(x, std[0]);
@@ -33,7 +37,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	normal_distribution<double> dist_theta(theta, std[2]);
 
 	particles.clear();
-	particles.resize(num_particles);
 
 	for (int i = 0; i < num_particles; i++) {
     Particle p;
@@ -41,7 +44,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		p.x = dist_x(gen);
 		p.y = dist_y(gen);
 		p.theta = dist_theta(gen);
-		p.weight = 1;
+		p.weight = 1.0;
 		particles.push_back(p);
 	}
 
@@ -59,7 +62,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 		normal_distribution<double> dist_theta(0, std_pos[2]);
 
 		for (int i = 0; i < num_particles; i++) {
-			if (fabs(yaw_rate < 1e-4)) {
+			if (fabs(yaw_rate) < 1e-4) {
 				particles[i].x += velocity * delta_t * cos(particles[i].theta);
 				particles[i].y += velocity * delta_t * sin(particles[i].theta);
 			}
@@ -84,7 +87,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	//   implement this method and use it as a helper during the updateWeights phase.
   for (int i = 0; i < observations.size(); i++) {
 		LandmarkObs observation = observations[i];
-		double min_distance = numeric_limits<double>::max();
+		double min_distance = INFINITY;
 		int min_id;
 		for (int j = 0; j < predicted.size(); j++) {
 			LandmarkObs prediction = predicted[j];
@@ -92,6 +95,10 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 			if (distance < min_distance) {
 				min_distance = distance;
 				min_id = prediction.id;
+				if (distance < 1e-2) {
+					// Good enough.
+					break;
+				}
 			}
 		}
 		observations[i].id = min_id;
@@ -117,12 +124,12 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
 		vector<LandmarkObs> predictions;
 		vector<LandmarkObs> transformedObservations;
-		std::map<int, LandmarkObs> predictionMap;
+		map<int, LandmarkObs> predictionMap;
 
 		for (int j = 0; j < map_landmarks.landmark_list.size(); j++) {
-			float lm_x = map_landmarks.landmark_list[j].x_f;
-			float lm_y = map_landmarks.landmark_list[j].y_f;
-			if (dist(p_x, p_y, lm_x, lm_y) <= sensor_range) {
+			double lm_x = map_landmarks.landmark_list[j].x_f;
+			double lm_y = map_landmarks.landmark_list[j].y_f;
+			if (dist(lm_x, lm_y, p_x, p_y) <= sensor_range) {
 				int lm_id = map_landmarks.landmark_list[j].id_i;
 				LandmarkObs lo = LandmarkObs { lm_id, lm_x, lm_y };
 				predictions.push_back(lo);
@@ -131,10 +138,10 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 		}
 
 		for (int j = 0; j < observations.size(); j++) {
-			float obs_x = observations[j].x;
-			float obs_y = observations[j].y;
+			double obs_x = observations[j].x;
+			double obs_y = observations[j].y;
 			double x = p_x + cos(p_theta) * obs_x - sin(p_theta) * obs_y;
-			double y = p_y + sin(p_theta) * obs_x - sin(p_theta) * obs_y;
+			double y = p_y + sin(p_theta) * obs_x + cos(p_theta) * obs_y;
 			transformedObservations.push_back(LandmarkObs{ observations[j].id, x, y });
 		}
 
@@ -150,7 +157,18 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 			double pred_y = prediction.y;
 			double s_x = std_landmark[0];
 			double s_y = std_landmark[1];
-			weight *= (1 / (2 * M_PI * s_x * s_y)) * exp(-(pow(pred_x - obs_x, 2) / (2 * pow(s_x, 2)) + (pow(pred_y - obs_y, 2) / (2 * pow(s_y, 2)))));
+
+      double w1 = pow(obs_x - pred_x, 2) / (2 * pow(s_x, 2));
+			double w2 = pow(obs_y - pred_y, 2) / (2 * pow(s_y, 2));
+			double w3 = 1.0 / sqrt(2 * M_PI * s_x * s_y);
+			double weight_j = w3 * exp(-(w1 + w2));
+			if (weight_j < 1e-9) {
+				cout << "obs_x " << obs_x << endl;
+				cout << "obs_y " << obs_y << endl;
+				cout << "pred_x " << pred_x << endl;
+				cout << "pred_y " << pred_y << endl;
+			}
+			weight *= weight_j;
 		}
 
 		particles[i].weight = weight;
@@ -161,9 +179,9 @@ void ParticleFilter::resample() {
 	// TODO: Resample particles with replacement with probability proportional to their weight.
 	// NOTE: You may find std::discrete_distribution helpful here.
 	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
-  vector<Particle> resampledParticles(num_particles);
+  vector<Particle> resampledParticles;
 	default_random_engine gen;
-	vector<double> weights(num_particles);
+	vector<double> weights;
 
 	for (int i = 0; i < num_particles; i++) {
 		weights.push_back(particles[i].weight);
