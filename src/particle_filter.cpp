@@ -162,12 +162,6 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 			double w2 = pow(obs_y - pred_y, 2) / (2 * pow(s_y, 2));
 			double w3 = 1.0 / sqrt(2 * M_PI * s_x * s_y);
 			double weight_j = w3 * exp(-(w1 + w2));
-			if (weight_j < 1e-9) {
-				cout << "obs_x " << obs_x << endl;
-				cout << "obs_y " << obs_y << endl;
-				cout << "pred_x " << pred_x << endl;
-				cout << "pred_y " << pred_y << endl;
-			}
 			weight *= weight_j;
 		}
 
